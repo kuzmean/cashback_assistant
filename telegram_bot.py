@@ -104,26 +104,31 @@ def save_cashback(user_id: int, bank: str, category: str, amount: float, input_t
                    (user_id, bank, category, amount, input_type, datetime.now().strftime("%d.%m.%Y %H:%M")))
     conn.commit()
 
+# Обновлённая функция get_summary с правильным форматом месяца и эмодзи для категорий
 def get_summary(user_id: int):
     cursor.execute("SELECT bank, category, amount FROM cashback WHERE user_id=?", (user_id,))
     rows = cursor.fetchall()
-    # Группируем данные по категории
     summary = {}
     for bank, category, amount in rows:
         if category not in summary:
             summary[category] = []
         summary[category].append((bank, amount))
-    # Формирование текста сводки
     text_lines = ["🏆 Лучшие кэшбэки по категориям:"]
     for cat, entries in summary.items():
-        text_lines.append(f"\n📋 {cat}")
-        # Сортировка по величине кешбэка (убывание)
+        # Если первая буква не является буквой, предполагаем, что эмоджи уже есть
+        if cat and not cat[0].isalpha():
+            cat_label = cat.capitalize()
+        elif cat in category_emojis:
+            cat_label = f"{category_emojis[cat]} {cat.capitalize()}"
+        else:
+            cat_label = f"{default_category_emoji} {cat.capitalize()}"
+        text_lines.append(f"\n {cat_label}")
         entries.sort(key=lambda x: x[1], reverse=True)
         medals = ["🥇", "🥈", "🥉"]
         for idx, (bank, amount) in enumerate(entries[:3]):
             medal = medals[idx] if idx < len(medals) else ""
             text_lines.append(f"└ {medal} {bank}: {int(amount)}%")
-    text_lines.append(f"\n📅 Актуально на: {datetime.now().strftime('%d.%м.%Y %H:%M')}")
+    text_lines.append(f"\n📅 Актуально на: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
     return "\n".join(text_lines)
 
 def reset_data_for_bank(user_id: int, bank: str):
@@ -136,11 +141,13 @@ sessions = {}
 # Инициализация Telegram-бота через pyTelegramBotAPI
 bot = telebot.TeleBot(os.environ["TELEGRAM_TOKEN"])
 
-# Главная клавиатура с опциями
+# Обновлённая основная клавиатура с эмодзи
 def main_menu_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.row("Добавить информацию", "Показать сводку")
-    keyboard.row("Сбросить данные")
+    # Первая строка – добавить информацию и показать сводку
+    keyboard.row("➕ Добавить информацию", "🔄 Сбросить данные")
+    # Вторая строка – сброс по банкам и полный сброс статистики
+    keyboard.row("📊 Показать сводку")
     return keyboard
 
 # Дополнительная клавиатура для добавления информации
@@ -150,20 +157,113 @@ def add_info_keyboard():
     keyboard.row("Назад")
     return keyboard
 
-# Клавиатура для выбора категорий
-def category_keyboard():
-    keyboard = types.InlineKeyboardMarkup(row_width=3)
-    categories = ["спорт", "еда", "образование", "кино", "искусство"]
-    buttons = [types.InlineKeyboardButton(text=cat.capitalize(), callback_data=f"cat_{cat}") for cat in categories]
-    buttons.append(types.InlineKeyboardButton(text="Другой", callback_data="cat_other"))
-    keyboard.add(*buttons)
-    return keyboard
+# Обновлённый словарь стандартных категорий и их эмодзи
+default_categories = ["одежда", "продукты", "рестораны", "образование", "техника", "такси"]
+category_emojis = {
+    # Транспорт и авто
+    "авто": "🚗",
+    "автозапчасти": "🔧",
+    "автоуслуги": "🛠️",
+    "топливо": "⛽",
+    "такси": "🚖",
+    "транспорт": "🚇",
+    "аренда авто": "🚙",
+    "покупка авто": "🏎️",
+    
+    # Еда и напитки
+    "продукты": "🛒",
+    "супермаркеты": "🏪",
+    "кафе и рестораны": "🍽️",
+    "рестораны": "🍽️",
+    "кафе": "🍽️",
+    "фастфуд": "🍔",
+    "алкоголь": "🍷",
+    "доставка еды": "🛵",
+    
+    # Здоровье
+    "аптеки": "💊",
+    "медицинские услуги": "🏥",
+    "товары для здоровья": "🩺",
+    
+    # Образование и хобби
+    "образование": "🎓",
+    "хобби": "🧩",
+    "культура и искусство": "🎭",
+    "спортивные товары": "🏋️",
+    "активный отдых": "🎢",
+    
+    # Техника и связь
+    "техника": "📱",
+    "связь, интернет и тв": "📡",
+    "цифровые товары": "💻",
+    
+    # Дом и быт
+    "дом и ремонт": "🏡",
+    "мебель": "🪑",
+    "цветы": "🌸",
+    
+    # Шопинг
+    "одежда и обувь": "👠",
+    "детские товары": "🧸",
+    "ювелирные изделия": "💎",
+    "маркетплейсы": "📦",
+    
+    # Специфические сервисы
+    "сервис тревел": "✈️",
+    "сервис заправки": "⛽",
+    "сервис маркет": "🛍️",
+    "сервис афиша": "🎟️",
+    "через alfa pay": "📲",  # "Alfa Pay" оставлен с заглавными, так как это бренд
+    
+    # Животные
+    "животные": "🐾",
+}
+default_category_emoji = "📋"
 
-# Клавиатура для подтверждения сброса данных
+# Функция для получения дополнительных категорий из БД для данного пользователя
+def get_user_categories(user_id: int):
+    cursor.execute("SELECT DISTINCT category FROM cashback WHERE user_id=?", (user_id,))
+    cats = [row[0] for row in cursor.fetchall()]
+    # Вернуть те, которых нет в default_categories
+    return list(set(c for c in cats if c not in default_categories))
+
+# Добавляем функцию для формирования клавиатуры банков с учётом введённых пользователем
+def bank_keyboard(user_id: int):
+    default_banks = ["OZON", "Газпромбанк", "Яндекс банк", "ВТБ", "МТС банк", "Тинькофф", "Сбербанк", "Альфа-Банк"]
+    user_banks = get_user_banks(user_id)
+    # Объединяем списки и удаляем дубликаты
+    banks = list(set(default_banks + user_banks))
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    buttons = [types.InlineKeyboardButton(text=bank, callback_data=f"bank_{bank}") for bank in banks]
+    buttons.append(types.InlineKeyboardButton(text="Другой", callback_data="bank_other"))
+    markup.add(*buttons)
+    return markup
+
+# Обновлённая функция category_keyboard с учетом пользовательских категорий и дефолтного эмодзи
+def category_keyboard(user_id: int):
+    default_cats = default_categories.copy()
+    user_cats = get_user_categories(user_id)
+    all_cats = list(set(default_cats + user_cats))
+    markup = types.InlineKeyboardMarkup(row_width=3)
+    buttons = []
+    for cat in all_cats:
+        if cat in default_categories:
+            # Для дефолтных категорий выводим только текст
+            text = cat.capitalize()
+        else:
+            text = f"{category_emojis.get(cat, default_category_emoji)} {cat.capitalize()}"
+        buttons.append(types.InlineKeyboardButton(text=text.strip(), callback_data=f"cat_{cat}"))
+    buttons.append(types.InlineKeyboardButton(text="Другой", callback_data="cat_other"))
+    markup.add(*buttons)
+    return markup
+
+# Обновлённая клавиатура для подтверждения сброса данных с эмодзи
 def reset_confirm_keyboard(bank: str):
     keyboard = types.InlineKeyboardMarkup(row_width=2)
-    keyboard.add(types.InlineKeyboardButton(text="Подтвердить", callback_data=f"reset_{bank}"),
-                 types.InlineKeyboardButton(text="Отмена", callback_data="reset_cancel"))
+    keyboard.add(
+        types.InlineKeyboardButton(text="Подтвердить ✅", callback_data=f"reset_{bank}"),
+        types.InlineKeyboardButton(text="Отмена ❌", callback_data="reset_cancel")
+    )
     return keyboard
 
 # Клавиатура для выбора добавления еще данных для банка
@@ -180,21 +280,49 @@ def input_method_keyboard():
     keyboard.row("Назад")
     return keyboard
 
+# Обновлённое приветствие при вызове команды /start
 @bot.message_handler(commands=["start"])
 def command_start(message):
     sessions[message.from_user.id] = {}  # сброс сессии
-    bot.reply_to(message, "Привет! Чем могу помочь? 😊\nВыберите опцию:", reply_markup=main_menu_keyboard())
+    welcome_text = (
+        "Welcome to Cashback Assistant! 🤑\n\n"
+        "Я помогу вам отслеживать лучшие предложения и сохранять информацию о кешбэке.\n"
+        "Выберите, что хотите сделать:"
+    )
+    bot.reply_to(message, welcome_text, reply_markup=main_menu_keyboard())
 
-@bot.message_handler(func=lambda m: m.text == "Добавить информацию")
+@bot.message_handler(func=lambda m: "добавить информацию" in m.text.lower())
 def add_information(message):
     sessions[message.from_user.id] = {}  # Сброс сессии для нового ввода
-    # Убираем сообщение "Сначала выберите банк:" – вызываем функцию выбора банка напрямую
     choose_bank(message)
 
-@bot.message_handler(func=lambda m: m.text == "Показать сводку")
+@bot.message_handler(func=lambda m: "показать сводку" in m.text.lower())
 def show_summary(message):
     summary = get_summary(message.from_user.id)
-    bot.reply_to(message, f"Вот ваша сводка кешбэка: \n{summary}", reply_markup=main_menu_keyboard())
+    bot.reply_to(message, f"\n{summary}", reply_markup=main_menu_keyboard())
+    offer_msg = (
+        "💳 Чтобы увеличить вашу выгоду, оформите карту:\n"
+        "Альфа банка: https://alfa.me/xGH5KO\n"
+        "Тинькофф: https://www.tbank.ru/baf/4HLAiOHJMyt"
+    )
+    bot.send_message(message.from_user.id, offer_msg, reply_markup=main_menu_keyboard())
+
+@bot.message_handler(func=lambda m: "сбросить данные" in m.text.lower())
+def reset_data(message):
+    user_id = message.from_user.id
+    banks = get_user_banks(user_id)
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    # Если есть сохранённые банки, добавить их кнопки
+    if banks:
+        buttons = [types.InlineKeyboardButton(text=bank, callback_data=f"resetbank_{bank}") for bank in banks]
+        keyboard.add(*buttons)
+    # Всегда добавляем кнопку для полного сброса
+    keyboard.add(types.InlineKeyboardButton(text="Полный сброс статистики", callback_data="reset_all"))
+    bot.reply_to(message, "Выберите сброс: для отдельного банка или полный сброс статистики:", reply_markup=keyboard)
+
+@bot.message_handler(func=lambda m: "назад" in m.text.lower())
+def back_to_main(message):
+    bot.reply_to(message, "Главное меню", reply_markup=main_menu_keyboard())
 
 # Добавляем функцию для получения банков пользователя из БД
 def get_user_banks(user_id: int):
@@ -222,11 +350,8 @@ def back_to_main(message):
 # Обработчик выбора банка
 @bot.message_handler(func=lambda m: m.text == "Выбрать банк")
 def choose_bank(message):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    banks = ["OZON", "Газпромбанк", "Яндекс банк", "ВТБ", "МТС банк", "Тинькофф", "Сбербанк", "Альфа-Банк"]
-    buttons = [types.InlineKeyboardButton(text=bank, callback_data=f"bank_{bank}") for bank in banks]
-    buttons.append(types.InlineKeyboardButton(text="Другой", callback_data="bank_other"))
-    markup.add(*buttons)
+    user_id = message.from_user.id
+    markup = bank_keyboard(user_id)
     bot.reply_to(message, "Выберите банк:", reply_markup=markup)
 
 # Изменяем callback_bank: после выбора банка показываем выбор способа ввода, а не сразу категорию
@@ -243,6 +368,7 @@ def callback_bank(call):
         bot.send_message(user_id, f"Выбран банк: {bank}\nВыберите способ ввода информации:", reply_markup=input_method_keyboard())
     bot.answer_callback_query(call.id)
 
+# В callback для выбора категории – передаем user_id в category_keyboard
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
 def callback_category(call):
     user_id = call.from_user.id
@@ -264,12 +390,19 @@ def callback_reset_bank(call):
     bot.send_message(user_id, msg, reply_markup=reset_confirm_keyboard(bank))
     bot.answer_callback_query(call.id)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("reset_"))
-def callback_reset_confirm(call):
+@bot.callback_query_handler(func=lambda call: call.data == "reset_all")
+def callback_reset_all(call):
     user_id = call.from_user.id
-    bank = call.data.split("_", 1)[1]
-    reset_data_for_bank(user_id, bank)
-    bot.send_message(user_id, f"Данные для банка {bank} сброшены.", reply_markup=main_menu_keyboard())
+    bot.send_message(user_id, "Вы действительно хотите полностью сбросить всю статистику?", reply_markup=full_reset_confirm_keyboard())
+    bot.answer_callback_query(call.id)
+
+# Обработчик для подтверждения полного сброса
+@bot.callback_query_handler(func=lambda call: call.data == "reset_all_confirm")
+def callback_reset_all_confirm(call):
+    user_id = call.from_user.id
+    cursor.execute("DELETE FROM cashback WHERE user_id=?", (user_id,))
+    conn.commit()
+    bot.send_message(user_id, "✅ Полный сброс статистики выполнен.", reply_markup=main_menu_keyboard())
     bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "reset_cancel")
@@ -278,11 +411,12 @@ def callback_reset_cancel(call):
     bot.send_message(user_id, "Сброс данных отменён.", reply_markup=main_menu_keyboard())
     bot.answer_callback_query(call.id)
 
+# При вызове клавиатуры категорий в callback_add_more и handle_text передаем user_id
 @bot.callback_query_handler(func=lambda call: call.data in ["add_more", "back_main"])
 def callback_add_more(call):
     user_id = call.from_user.id
     if call.data == "add_more":
-        bot.send_message(user_id, "Выберите категорию:", reply_markup=category_keyboard())
+        bot.send_message(user_id, "Выберите категорию:", reply_markup=category_keyboard(user_id))
         sessions[user_id]["stage"] = "choose_category"
     else:
         bot.send_message(user_id, "Главное меню", reply_markup=main_menu_keyboard())
@@ -291,13 +425,17 @@ def callback_add_more(call):
 # Приём текста для ручного ввода или для ввода названия банка, если выбран вариант "Другой"
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def handle_text(message):
+    # Если сообщение начинается с '/', не обрабатываем его здесь
+    if message.text.startswith('/'):
+        return
     user_id = message.from_user.id
     session = sessions.setdefault(user_id, {})
-    # Если ожидается название банка
+    # Если ожидается название банка (в том числе "Другой")
     if session.get("await_bank"):
         session["bank"] = message.text
         session.pop("await_bank")
-        bot.reply_to(message, f"👍 Отлично! Выбран банк: {message.text}\nТеперь выберите категорию:", reply_markup=category_keyboard())
+        # Изменено: предлагаем выбор способа ввода, а не сразу категории
+        bot.reply_to(message, f"👍 Отлично! Выбран банк: {message.text}\nВыберите способ ввода информации:", reply_markup=input_method_keyboard())
     # Если ожидается ввод названия категории (при выборе "Другой" в категории)
     elif session.get("await_category"):
         session["category"] = message.text
@@ -315,9 +453,12 @@ def handle_text(message):
             session.pop("stage")
         except Exception as e:
             bot.reply_to(message, f"❌ Ошибка: введите, пожалуйста, целое число для кешбэка. ({e})")
-    # Обработка команды "скриншот"
+    # Если выбрана команда "скриншот"
     elif message.text.lower() == "скриншот":
         bot.reply_to(message, "Пожалуйста, отправьте скриншот с информацией о кешбэке. 📷", reply_markup=input_method_keyboard())
+    # Добавляем новую ветку для "ручной ввод"
+    elif message.text.lower() == "ручной ввод":
+        bot.reply_to(message, "Пожалуйста, выберите категорию для ручного ввода:", reply_markup=category_keyboard(user_id))
     else:
         bot.reply_to(message, "🤔 Неизвестная команда. Пожалуйста, используйте меню ниже.", reply_markup=main_menu_keyboard())
 
@@ -384,6 +525,32 @@ def cancel_screenshot(call):
     user_id = call.from_user.id
     sessions[user_id].pop("screenshot", None)
     bot.send_message(user_id, "Отменено. Вы можете попробовать ввести данные вручную.", reply_markup=input_method_keyboard())
+    bot.answer_callback_query(call.id)
+
+# Новая inline-клавиатура для подтверждения полного сброса
+def full_reset_confirm_keyboard():
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        types.InlineKeyboardButton(text="Подтвердить ✅", callback_data="reset_all_confirm"),
+        types.InlineKeyboardButton(text="Отмена ❌", callback_data="reset_cancel")
+    )
+    return keyboard
+
+@bot.message_handler(commands=["offer"])
+def card_links(message):
+    links_text = (
+        "💳 Оформление карт:\n"
+        "Альфа банка: https://alfa.me/xGH5KO\n"
+        "Тинькофф банк: https://www.tbank.ru/baf/4HLAiOHJMyt"
+    )
+    bot.reply_to(message, links_text, reply_markup=main_menu_keyboard())
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("reset_") and call.data not in ["reset_all", "reset_all_confirm", "reset_cancel"])
+def callback_reset_bank_confirm(call):
+    user_id = call.from_user.id
+    bank = call.data.split("_", 1)[1]
+    reset_data_for_bank(user_id, bank)
+    bot.send_message(user_id, f"Данные для банка {bank} сброшены.", reply_markup=main_menu_keyboard())
     bot.answer_callback_query(call.id)
 
 if __name__ == "__main__":
