@@ -1,4 +1,4 @@
-# 🤖 Cashback Analyzer Bot
+# 🤖 Cashback Assistant Bot
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -259,8 +259,8 @@ cashback-analyzer-bot/
 
 - **Telegram-бот:** [@cashback_matcher_bot](https://t.me/cashback_matcher_bot)
 - **Разработчик:** [@thisismoto](https://t.me/thisismoto)
-- **GitHub:** [kuzmean/cashback-analyzer-bot](https://github.com/kuzmean/cashback-analyzer-bot)
-- **Баг-репорты:** [GitHub Issues](https://github.com/kuzmean/cashback-analyzer-bot/issues)
+- **GitHub:** [kuzmean/cashback-analyzer-bot](https://github.com/kuzmean/cashback_assistant)
+- **Баг-репорты:** [GitHub Issues](https://github.com/kuzmean/cashback_assistant/issues)
 
 ## 📄 Лицензия
 
