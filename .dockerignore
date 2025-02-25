@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.env
+.git/
+.github/
+.gitignore
+*.db
+.DS_Store
+README.md
+docs/
+tests/
+*.log 

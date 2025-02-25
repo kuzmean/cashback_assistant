@@ -1,6 +1,3 @@
-# Рекомендуется установить библиотеку:
-# !pip install -q pyTelegramBotAPI
-
 import os
 import tempfile
 import sqlite3
