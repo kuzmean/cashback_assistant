@@ -7,7 +7,7 @@
 
 Профессиональный Telegram-бот для автоматического анализа кэшбэка с интеграцией передовой модели GigaChat для распознавания данных с изображений.
 
-![Баннер](https://via.placeholder.com/1920x400.png/007ACC/FFFFFF?text=Cashback+Analyzer+Bot)
+![Баннер](https://github.com/kuzmean/cashback_assistant/blob/main/example.jpg)
 
 ## 📋 Содержание
 
@@ -258,8 +258,7 @@ cashback-analyzer-bot/
 ## 📞 Контакты
 
 - **Telegram-бот:** [@cashback_matcher_bot](https://t.me/cashback_matcher_bot)
-- **Разработчик:** [@your_username](https://t.me/your_username)
-- **Email:** your.email@example.com
+- **Разработчик:** [@thisismoto](https://t.me/thisismoto)
 - **GitHub:** [kuzmean/cashback-analyzer-bot](https://github.com/kuzmean/cashback-analyzer-bot)
 - **Баг-репорты:** [GitHub Issues](https://github.com/kuzmean/cashback-analyzer-bot/issues)
 
