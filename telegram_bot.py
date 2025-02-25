@@ -101,30 +101,40 @@ def save_cashback(user_id: int, bank: str, category: str, amount: float, input_t
                    (user_id, bank, category, amount, input_type, datetime.now().strftime("%d.%m.%Y %H:%M")))
     conn.commit()
 
-# Обновлённая функция get_summary с правильным форматом месяца и эмодзи для категорий
-def get_summary(user_id: int):
-    cursor.execute("SELECT bank, category, amount FROM cashback WHERE user_id=?", (user_id,))
-    rows = cursor.fetchall()
+# Обновлённая функция форматирования сводки с эмодзи
+def get_summary(user_id):
+    rows = cursor.execute("SELECT bank, category, amount FROM cashback WHERE user_id=?", (user_id,)).fetchall()
     summary = {}
+    
     for bank, category, amount in rows:
         if category not in summary:
             summary[category] = []
         summary[category].append((bank, amount))
+    
     text_lines = ["🏆 Лучшие кэшбэки по категориям:"]
-    for cat, entries in summary.items():
-        # Если первая буква не является буквой, предполагаем, что эмоджи уже есть
-        if cat and not cat[0].isalpha():
-            cat_label = cat.capitalize()
-        elif cat in category_emojis:
-            cat_label = f"{category_emojis[cat]} {cat.capitalize()}"
+    
+    # Сортируем категории в алфавитном порядке
+    for cat in sorted(summary.keys(), key=str.lower):
+        entries = summary[cat]
+        # Добавляем эмодзи, если категория есть в словаре (с учетом нижнего регистра)
+        if cat.lower() in category_emojis:
+            cat_label = f"{category_emojis[cat.lower()]} {cat.capitalize()}"
         else:
             cat_label = f"{default_category_emoji} {cat.capitalize()}"
         text_lines.append(f"\n {cat_label}")
+        
+        # Сортируем по размеру кэшбэка и добавляем медали
         entries.sort(key=lambda x: x[1], reverse=True)
         medals = ["🥇", "🥈", "🥉"]
+        
         for idx, (bank, amount) in enumerate(entries[:3]):
             medal = medals[idx] if idx < len(medals) else ""
-            text_lines.append(f"└ {medal} {bank}: {int(amount)}%")
+            # Выделяем жирным первый (лучший) вариант
+            if idx == 0:
+                text_lines.append(f"└ {medal} *{bank}: {int(amount)}%*")
+            else:
+                text_lines.append(f"└ {medal} {bank}: {int(amount)}%")
+    
     text_lines.append(f"\n📅 Актуально на: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
     return "\n".join(text_lines)
 
@@ -162,6 +172,7 @@ category_emojis = {
     "автозапчасти": "🔧",
     "автоуслуги": "🛠️",
     "топливо": "⛽",
+    "топливо и азс": "⛽",
     "такси": "🚖",
     "транспорт": "🚇",
     "аренда авто": "🚙",
@@ -181,6 +192,7 @@ category_emojis = {
     "аптеки": "💊",
     "медицинские услуги": "🏥",
     "товары для здоровья": "🩺",
+    "красота": "💄",
     
     # Образование и хобби
     "образование": "🎓",
@@ -188,6 +200,11 @@ category_emojis = {
     "культура и искусство": "🎭",
     "спортивные товары": "🏋️",
     "активный отдых": "🎢",
+    "спорт": "🏋️",
+    "спорттовары": "🏋️",
+    "кино": "🎬",
+    "кинотеатры": "🎬",
+
     
     # Техника и связь
     "техника": "📱",
@@ -197,13 +214,13 @@ category_emojis = {
     # Дом и быт
     "дом и ремонт": "🏡",
     "мебель": "🪑",
-    "цветы": "🌸",
-    
+    "цветы": "��",
     # Шопинг
     "одежда и обувь": "👠",
     "детские товары": "🧸",
-    "ювелирные изделия": "💎",
+    "ювелирные изделия": "��",
     "маркетплейсы": "📦",
+
     
     # Специфические сервисы
     "сервис тревел": "✈️",
@@ -238,18 +255,17 @@ def bank_keyboard(user_id: int):
 
 # Обновлённая функция category_keyboard с учетом пользовательских категорий и дефолтного эмодзи
 def category_keyboard(user_id: int):
-    default_cats = default_categories.copy()
-    user_cats = get_user_categories(user_id)
+    default_cats = ["одежда", "продукты", "рестораны", "образование", "техника", "такси"]
+    cursor.execute("SELECT DISTINCT category FROM cashback WHERE user_id=?", (user_id,))
+    user_cats = [row[0] for row in cursor.fetchall()]
     all_cats = list(set(default_cats + user_cats))
+    
     markup = types.InlineKeyboardMarkup(row_width=3)
     buttons = []
     for cat in all_cats:
-        if cat in default_categories:
-            # Для дефолтных категорий выводим только текст
-            text = cat.capitalize()
-        else:
-            text = f"{category_emojis.get(cat, default_category_emoji)} {cat.capitalize()}"
-        buttons.append(types.InlineKeyboardButton(text=text.strip(), callback_data=f"cat_{cat}"))
+        text = cat.capitalize()
+        buttons.append(types.InlineKeyboardButton(text=text, callback_data=f"cat_{cat}"))
+    
     buttons.append(types.InlineKeyboardButton(text="Другой", callback_data="cat_other"))
     markup.add(*buttons)
     return markup
@@ -273,8 +289,8 @@ def add_more_keyboard():
 # Добавляем функцию для клавиатуры выбора способа ввода
 def input_method_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.row("Ручной ввод", "Скриншот")
-    keyboard.row("Назад")
+    keyboard.row("✍️ Ручной ввод", "📸 Скриншот")
+    keyboard.row("🔙 Назад")
     return keyboard
 
 # Обновлённое приветствие при вызове команды /start
@@ -296,11 +312,11 @@ def add_information(message):
 @bot.message_handler(func=lambda m: "показать сводку" in m.text.lower())
 def show_summary(message):
     summary = get_summary(message.from_user.id)
-    bot.reply_to(message, f"\n{summary}", reply_markup=main_menu_keyboard())
+    bot.reply_to(message, f"\n{summary}", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
     offer_msg = (
         "💳 Чтобы увеличить вашу выгоду, оформите карту:\n"
-        "Альфа банка: https://alfa.me/xGH5KO\n"
-        "Тинькофф: https://www.tbank.ru/baf/4HLAiOHJMyt"
+        "Альфа-банк: https://alfa.me/xGH5KO\n"
+        "Т-банк: https://www.tbank.ru/baf/4HLAiOHJMyt"
     )
     bot.send_message(message.from_user.id, offer_msg, reply_markup=main_menu_keyboard())
 
@@ -340,9 +356,25 @@ def reset_data(message):
     markup.add(*buttons)
     bot.reply_to(message, "Выберите банк для сброса данных:", reply_markup=markup)
 
-@bot.message_handler(func=lambda m: m.text == "Назад")
-def back_to_main(message):
-    bot.reply_to(message, "Главное меню", reply_markup=main_menu_keyboard())
+@bot.message_handler(func=lambda m: "ручной ввод" in m.text.lower())
+def manual_input(message):
+    user_id = message.from_user.id
+    # Если у пользователя уже выбран банк, показываем клавиатуру категорий
+    if user_id in sessions and "bank" in sessions[user_id]:
+        bank = sessions[user_id]["bank"]
+        markup = category_keyboard(user_id)
+        bot.send_message(user_id, f"Выбран банк: {bank}\nВыберите категорию:", reply_markup=markup)
+    else:
+        bot.send_message(user_id, "Сначала выберите банк", reply_markup=main_menu_keyboard())
+
+@bot.message_handler(func=lambda m: "скриншот" in m.text.lower())
+def screenshot_input(message):
+    user_id = message.from_user.id
+    if user_id in sessions and "bank" in sessions[user_id]:
+        bank = sessions[user_id]["bank"]
+        bot.send_message(user_id, f"Выбран банк: {bank}\nОтправьте скриншот с информацией о кешбэке:")
+    else:
+        bot.send_message(user_id, "Сначала выберите банк", reply_markup=main_menu_keyboard())
 
 # Обработчик выбора банка
 @bot.message_handler(func=lambda m: m.text == "Выбрать банк")
@@ -537,8 +569,8 @@ def full_reset_confirm_keyboard():
 def card_links(message):
     links_text = (
         "💳 Оформление карт:\n"
-        "Альфа банка: https://alfa.me/xGH5KO\n"
-        "Тинькофф банк: https://www.tbank.ru/baf/4HLAiOHJMyt"
+        "Альфа-банк: https://alfa.me/xGH5KO\n"
+        "Т-банк: https://www.tbank.ru/baf/4HLAiOHJMyt"
     )
     bot.reply_to(message, links_text, reply_markup=main_menu_keyboard())
 
