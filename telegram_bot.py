@@ -321,12 +321,20 @@ def handle_text(message):
     else:
         bot.reply_to(message, "🤔 Неизвестная команда. Пожалуйста, используйте меню ниже.", reply_markup=main_menu_keyboard())
 
-# Обработчик фото для автоматического распознавания через LLM
+# Добавляем inline-клавиатуру для подтверждения результата скриншота
+def screenshot_confirm_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton(text="Подтвердить ✅", callback_data="confirm_screenshot"),
+        types.InlineKeyboardButton(text="Отмена ❌", callback_data="cancel_screenshot")
+    )
+    return markup
+
+# Изменяем обработчик фото: сохраняем результат во временную сессию и запрашиваем подтверждение
 @bot.message_handler(content_types=["photo"])
 def handle_photo(message):
     user_id = message.from_user.id
     try:
-        # Берём файл фото (наилучшего качества) 📸
         file_id = message.photo[-1].file_id
         file_info = bot.get_file(file_id)
         tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
@@ -335,23 +343,48 @@ def handle_photo(message):
         downloaded_file = bot.download_file(file_info.file_path)
         with open(tmp_path, "wb") as new_file:
             new_file.write(downloaded_file)
-        # Отправляем фото в LLM для обработки 🤖
         with open(tmp_path, "rb") as f:
             uploaded_file = llm.upload_file(f)
         result = chain.batch([uploaded_file.id_])
-        if result and result[0].categories:  # исправлено синтаксическое условие
-            bank = sessions.get(user_id, {}).get("bank", "Не выбран")
-            for cat in result[0].categories:
-                save_cashback(user_id, bank, cat.category, int(cat.amount), input_type="screenshot")
-            response_text = "\n".join(f"{cat.category.capitalize()}: {int(cat.amount)}% 💰" for cat in result[0].categories)
+        if result and result[0].categories:
+            # Сохраняем результат во временную сессию
+            sessions[user_id]["screenshot"] = result[0].categories
+            response = "\n".join(f"{cat.category.capitalize()}: {int(cat.amount)}% 💰" for cat in result[0].categories)
+            # Запрашиваем подтверждение
+            bot.reply_to(message,
+                         f"Я распознал следующие кешбэк категории:\n{response}\nПодтвердите, чтобы сохранить данные:",
+                         reply_markup=screenshot_confirm_keyboard())
         else:
-            response_text = "🙁 К сожалению, не удалось определить кешбэк из изображения."
-        bot.reply_to(message, f"Отлично! Вот что я нашёл:\n{response_text}", reply_markup=add_info_keyboard())
+            bot.reply_to(message, "🙁 Не удалось распознать кешбэк. Попробуйте ввести данные вручную.",
+                         reply_markup=input_method_keyboard())
     except Exception as e:
-        bot.reply_to(message, f"❌ Ой, произошла ошибка при обработке изображения. Попробуйте ввести данные вручную! ({e})")
+        bot.reply_to(message, f"❌ Ошибка при обработке изображения. Попробуйте ввести данные вручную! ({e})")
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+# Обработчики inline для подтверждения / отмены сохранения результата скриншота
+@bot.callback_query_handler(func=lambda call: call.data == "confirm_screenshot")
+def confirm_screenshot(call):
+    user_id = call.from_user.id
+    categories = sessions.get(user_id, {}).get("screenshot")
+    bank = sessions.get(user_id, {}).get("bank", "Не выбран")
+    if categories:
+        for cat in categories:
+            save_cashback(user_id, bank, cat.category, int(cat.amount), input_type="screenshot")
+        response = "\n".join(f"{cat.category.capitalize()}: {int(cat.amount)}% 💰" for cat in categories)
+        bot.send_message(user_id, f"✅ Сохранено:\n{response}", reply_markup=main_menu_keyboard())
+        sessions[user_id].pop("screenshot", None)
+    else:
+        bot.send_message(user_id, "❌ Нет данных для сохранения.", reply_markup=main_menu_keyboard())
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "cancel_screenshot")
+def cancel_screenshot(call):
+    user_id = call.from_user.id
+    sessions[user_id].pop("screenshot", None)
+    bot.send_message(user_id, "Отменено. Вы можете попробовать ввести данные вручную.", reply_markup=input_method_keyboard())
+    bot.answer_callback_query(call.id)
 
 if __name__ == "__main__":
     bot.polling(none_stop=True)
